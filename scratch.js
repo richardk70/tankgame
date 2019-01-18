@@ -3,7 +3,7 @@ const canvas = document.getElementById('main-canvas');
 const ctx = canvas.getContext('2d');
 
 // GLOBALS
-const WIDTH = 800;
+const WIDTH = 900;
 const HEIGHT = 600;
 const OBSTACLECOUNT = 2;
 const SHOTSPD = 9;
@@ -57,11 +57,6 @@ document.onmousemove = (e) => {
     mouseY = mouseY - player.y - player.height/2;
 
     player.aimAngle = Math.atan2(mouseY, mouseX) / Math.PI * 180;
-
-    // feedback on firing
-    // fbX.textContent = mouseX;
-    // fbY.textContent = mouseY;
-    // aimAngle.textContent = player.aimAngle;
 }
 
 // MAIN GUN ATTACK /////
@@ -83,7 +78,10 @@ document.addEventListener('keydown', (e) => {
         break;
         case 40: player.pressDown = true;
         break;
-        case 32: paused = !paused;
+        case 32: player.speedBonus++;
+                 setTimeout(() => {
+                     player.speedBonus = 1;
+                 }, 1500);;
         break;
         case 17: mg = true;
         break;
@@ -147,29 +145,16 @@ function Powerup(type, x, y, numFrames, img) {
     }
 }
 
-var getSafeCoords = (powerUp) => {
-    let x = 0, y = 0;
-    for (block of blocks) {
-        var isColliding = checkCollision(powerUp, block);
-        if (isColliding) {
-            console.log('moved');
-            powerUp.y += 10;
-            powerUp.x -= 10;
-            getSafeCoords(powerUp);
-        } else {
-            console.log('location safe');
-            x = powerUp.x;
-            y = powerUp.y;
-        }
-    }
-    return {x, y};
-}
-
+// create the powerup object
 var createPowerUp = (powerObj) => {
-    powerObj.x = getRandom(30, WIDTH - 30, 30);
-    powerObj.y = getRandom(30, HEIGHT - 30, 30);
-    let safeCoords = getSafeCoords(powerObj);
-    powerups.push(new Powerup(powerObj.type, safeCoords.x, safeCoords.y, powerObj.numFrames, powerObj.img));
+    let ranCol = getRandom(1, cols - 1);
+    let ranRow = getRandom(1, rows - 1);
+    if (grid[ranCol][ranRow] == 0) {
+        grid[ranCol][ranRow] = 2;
+        powerups.push(new Powerup(powerObj.type, ranCol * CELL, ranRow * CELL, powerObj.numFrames, powerObj.img));
+    } else {
+        createPowerUp(powerObj);        
+    }
 }
 
 // speed
@@ -435,6 +420,8 @@ function Bullet(x, y, dx, dy) {
     this.prevY = 0;
     this.dx = dx;
     this.dy = dy;
+    this.width = 3;
+    this.height = 3;
     this.age = 0;
     this.type = 'bullet';
 
@@ -448,13 +435,14 @@ function Bullet(x, y, dx, dy) {
             this.x += this.dx;
             this.y += this.dy;
             this.edge();
+            this.draw();
         }    
     }
 
     this.draw = function() {
         ctx.beginPath();
         ctx.rect(this.prevX, this.prevY, 1, 1);
-        ctx.rect(this.x, this.y - 1, 3,3);
+        ctx.rect(this.x, this.y - 1, this.width, this.height);
         ctx.fillStyle = 'white';
         ctx.fill();
         ctx.closePath();
@@ -572,6 +560,7 @@ var player = {
     height: 44,
     speed: 1,
     speedBonus: 1,
+    turbo: 0,
     ammo: 10,
     hp: 10,
     armor: 1,
@@ -637,6 +626,12 @@ var player = {
             frameWidth, frameHeight,
             this.x, this.y, 
             this.width, this.height);
+        // box around the tank
+        // ctx.beginPath();
+        // ctx.strokeStyle = 'red';
+        // ctx.rect(this.x, this.y, this.width, this.height);
+        // ctx.stroke();
+        // ctx.closePath();
     },
     update: function() {
         if (this.pressLeft) 
@@ -657,7 +652,10 @@ var player = {
 
         if (this.hp <= 0) {
             console.log('game over');
-            startGame();
+            delete player;
+            setTimeout(() => {
+                startGame();
+            }, 1000);
         }
 
         this.edge();
@@ -698,16 +696,24 @@ function Part(x,y,speed,angle, life){
     this.height = Math.random() * 4;
 } 
 
-function initExplode(x, y){
+function lgExplode(x, y) {
     for (var i = 0; i < PARTLIMIT; i++){
         // vary angle
         let ranAngle = Math.round(Math.random() * 360);
         // vary speed
-        let ranSpeed = 1 + Math.random() * 6;
-        parts.push(new Part(x, y, ranSpeed, ranAngle, 10 + Math.random() * 20 ));
+        let ranSpeed = Math.random() * 4;
+        parts.push(new Part(x, y, ranSpeed, ranAngle, Math.random() * 30 ));
     }
-    // moveExplosion();
-    
+}
+
+function smExplode(x, y) {
+    for (var i = 0; i < PARTLIMIT / 2; i++){
+        // vary angle
+        let ranAngle = Math.round(Math.random() * 360);
+        // vary speed
+        let ranSpeed = Math.random() * 3;
+        parts.push(new Part(x, y, ranSpeed, ranAngle, Math.random() * 10 ));
+    }
 }
 
 function moveExplosion(){
@@ -795,11 +801,6 @@ function Tread(x, y, direction) {
     this.direction = direction;
 
     this.draw = function() {
-        // ctx.beginPath();
-        // ctx.rect(this.x, this.y, this.width, this.height);
-        // ctx.fillStyle = 'red';
-        // ctx.fill();
-
         ctx.beginPath();
         ctx.rect(this.x, this.y, this.width, this.height);
         ctx.fillStyle = 'brown';
@@ -845,11 +846,34 @@ var frameCount = 0;
 function loop() {
     frameCount++;
     ctx.clearRect(0,0,WIDTH,HEIGHT);
-    drawMap();
+    drawGrid();
+    drawBlocks();    
     showScore();
 
     moveExplosion();
     drawExplosion();
+
+    let lastX = player.x;
+    let lastY = player.y;
+
+    player.update();
+
+    var playerCollisionSquare = {
+        x: player.x + 5,
+        y: player.y + 5,
+        width: player.width - 10,
+        height: player.height - 10,
+    };
+
+    if (bullets.length > 0) 
+        for (let i = 0; i < bullets.length; i++) 
+            bullets[i].update();
+
+
+    if (mainGun) {
+        flash.update();
+        flash.draw();
+    }
 
     // UPGRADES
     if (frameCount % 400 == 0 && powerups.length < POWERLIMIT) {
@@ -870,15 +894,12 @@ function loop() {
         powerups[i].update();
         powerups[i].draw();
 
-        var isColliding = checkCollision(player, powerups[i]);
+        var isColliding = checkCollision(playerCollisionSquare, powerups[i]);
         if (isColliding) {
             if (powerups[i].type == 'health')
                 player.hp++;
             if (powerups[i].type == 'speed') {
-                player.speedBonus++;
-                setTimeout(() => {
-                    player.speedBonus = 1;
-                }, 1500);
+                player.turbo ++;
             }
             if (powerups[i].type == 'ammo')
                 player.ammo += 3;
@@ -890,28 +911,52 @@ function loop() {
 
     // draw all enemies positions
     for (enemy of enemies) {
+        // enemies fire randomly
+        enemy.attackCounter++;
+        if (enemy.attackCounter % 300 == 0) {
+            enemy.fire();
+            enemy.attackCounter = 0;
+        }
+
+        // setup collision
         let enemyLastX = enemy.x;
         let enemyLastY = enemy.y;
+
+        // move all enemies
         enemy.update();
-        
+        var enemyCollisionSquare = {
+            x: enemy.x + 5,
+            y: enemy.y + 5,
+            width: enemy.width - 10,
+            height: enemy.height - 10,
+        };
+                
         // no overlapping with player tank
-        let isColliding = checkCollision(player, enemy);
+        let isColliding = checkCollision(playerCollisionSquare, enemyCollisionSquare);
         if (isColliding) {
             enemy.x = enemyLastX;
-            enemy.y = enemyLastY;
+            enemy.y = enemyLastY; 
+            player.x = lastX;
+            player.y = lastY;
         }
+
         // enemy contact with blocks
         for (block of blocks) {
-            let isColliding = checkCollision(enemy, block);
+            let isColliding = checkCollision(enemyCollisionSquare, block);
             if (isColliding) {
                 enemy.x = enemyLastX;
                 enemy.y = enemyLastY;
             }
         }
+        // enemy contact with bullets
+        for (let i = 0; i < bullets.length; i++) {
+                let isColliding = checkCollision(bullets[i], enemyCollisionSquare);
+                if (isColliding) {
+                    bullets.shift(i,1);
+                }
+        }
     }
 
-    // space enemies out   
-    
     // draw tank treads
     for (tread of treadHistory) {
         tread.draw();
@@ -922,47 +967,9 @@ function loop() {
             createBullet();
         }
     }
-
-    if (bullets.length > 0) {
-        for (bullet of bullets) {
-            bullet.update();
-            bullet.edge();
-            bullet.draw();
-        }
-    }
     
-    if (mainGun) {
-        flash.update();
-        flash.draw();
-    }
-
-    for (var i = 0; i < enemies.length - 1; i++) {
-        // enemies space apart
-        let diffY1 = enemies[i].y - enemies[i+1].y;
-
-        // enemies fire randomly
-        enemies[i].attackCounter++;
-        if (enemies[i].attackCounter % 300 == 0) {
-            enemies[i].fire();
-            enemies[i].attackCounter = 0;
-        }
-    }  
-    
-    let lastX = player.x;
-    let lastY = player.y;
-
-    player.update();
-    // collision detection: player vs enemy tanks
-    for (enemy of enemies) {
-        var isColliding = checkCollision(player, enemy);
-        if (isColliding) {
-            player.x = lastX;
-            player.y = lastY;
-        }
-
-    }
     for (block of blocks) {
-        let isColliding = checkCollision(player, block);
+        let isColliding = checkCollision(playerCollisionSquare, block);
         if (isColliding) {
             player.x = lastX;
             player.y = lastY;
@@ -976,9 +983,9 @@ function loop() {
         shot.update();
 
         // collision detection: shots vs player
-        var isColliding = checkCollision(player, shot);
+        var isColliding = checkCollision(shot, playerCollisionSquare);
         if (isColliding && shot.age > 5) {
-            initExplode(player.x + player.width/2, player.y + player.height/2);
+            lgExplode(player.x + player.width/2, player.y + player.height/2);
             player.hp = player.hp - 1/player.armor;
             player.armor--;
         }
@@ -988,7 +995,7 @@ function loop() {
             var isColliding = checkCollision(shot, enemies[i]);
             if (isColliding && shot.age > 10) {
                 // explosion here
-                initExplode(enemies[i].x + enemies[i].width/2, enemies[i].y + enemies[i].height/2);
+                lgExplode(enemies[i].x + enemies[i].width/2, enemies[i].y + enemies[i].height/2);
                 enemies.splice(i,1);
                 shots.splice(shot);
             } 
@@ -997,34 +1004,42 @@ function loop() {
 
     for (block of blocks) {
         // collision detection: bullets and shots VS walls
-        for (var j = 0; j < bullets.length; j++) {
-            let isColliding = checkCollision(bullets[j], block);
-            if (isColliding) 
-                bullets.shift(j, 1);
-        } 
+        for (bullet of bullets) 
+            shotCollision(bullet, block);
         
-        for (var i = 0; i < shots.length; i++) {
-            let isColliding = checkCollision(shots[i], block);
-            if (isColliding) 
-                shots.shift(i, 1);
-        }
+        for (var i = 0; i < shots.length; i++) 
+            shotCollision(shots[i], block, i); 
     }
 
     if (enemies.length == 0) {
         NUMENEMIES ++;
         for (var i = 0; i < NUMENEMIES; i++)
-        createEnemy(getRandom(WIDTH - 100, WIDTH-20, 60), getRandom(10, HEIGHT-20, 60));
+            plotTankCleanly(27, isAvailable());
     }
-    
-    if (frameCount > 1000)
-    frameCount = 0;
-    
+        
     fb();
     window.requestAnimationFrame(loop);
 }
 // END LOOP ///////////////////////////////////////////////////////////////////
 
 // COLLISION DETECTION //////////////////////////////////////////////////////////////
+var shotCollision = (projectile, block, idx) => {
+    let blockLeft = block.x;
+    let blockRight = block.x + block.width;
+    let blockTop = block.y;
+    let blockBottom = block.y + block.height;
+
+    if (projectile.x >= blockLeft && projectile.x <= blockRight &&
+        projectile.y >= blockTop && projectile.y <= blockBottom) {
+            if (projectile.type == 'bullet')
+                bullets.shift(projectile);
+            if (projectile.type == 'shot') {
+                smExplode(projectile.x, projectile.y);
+                shots.shift(idx, 1);
+            }
+        }
+}
+
 var checkCollision = (obj1, obj2) => {
     var rect1 = {
         x: obj1.x,
@@ -1059,112 +1074,108 @@ function Block(x,y, width, height) {
     this.height = height;
 };
 
-var createSquare = (x, y, side) => {
-    return new Block(x, y, side, side);
-}
+const CELL = 30;
+const cols = WIDTH / CELL; // 30
+const rows = HEIGHT / CELL; // 20
 
-var createRectangle = (x, y, shortSide) => {
-    var longSide = shortSide * Math.random() * 3;
-    return new Block(x, y, shortSide, longSide);
-}
+var grid = createArray(cols);
 
-var createLLeftTop = () => {
-    var DEPTH = getRandom(20, 50, 10);
-    var x = getRandom(10, WIDTH - DEPTH, 10); // increments of 10, from 10 to 600
-    var y = getRandom(10, HEIGHT - DEPTH, 10); // increments of 10, from 10 to 600
-    blocks.push(createSquare(x, y, DEPTH));
-    blocks.push(createSquare(x + DEPTH, y, DEPTH));
-    blocks.push(createSquare(x, y + DEPTH, DEPTH));
-}
-var createLRightTop = () => {
-    var DEPTH = getRandom(20, 50, 10);
-    var x = getRandom(10, WIDTH - DEPTH, 10); // increments of 10, from 10 to 600
-    var y = getRandom(10, HEIGHT - DEPTH, 10); // increments of 10, from 10 to 600
-    blocks.push(createSquare(x, y, DEPTH));
-    blocks.push(createSquare(x - DEPTH, y, DEPTH));
-    blocks.push(createSquare(x, y + DEPTH, DEPTH));
-}
-var createLLeftBottom = () => {
-    var DEPTH = getRandom(20, 50, 10);
-    var x = getRandom(10, WIDTH - DEPTH, 10); // increments of 10, from 10 to 600
-    var y = getRandom(10, HEIGHT - DEPTH, 10); // increments of 10, from 10 to 600
-    blocks.push(createSquare(x, y, DEPTH));
-    blocks.push(createSquare(x - DEPTH, y, DEPTH));
-    blocks.push(createSquare(x, y - DEPTH, DEPTH));
-}
-var createLRightBottom = () => {
-    var DEPTH = getRandom(20, 50, 10);
-    var x = getRandom(10, WIDTH - DEPTH, 10); // increments of 10, from 10 to 600
-    var y = getRandom(10, HEIGHT - DEPTH, 10); // increments of 10, from 10 to 600
-    blocks.push(createSquare(x, y, DEPTH));
-    blocks.push(createSquare(x, y - DEPTH, DEPTH));
-    blocks.push(createSquare(x + DEPTH, y, DEPTH));
-}
-
-function createMap() {
-    var Xs = [];
-    var Ys = [];
-    for (var i = 0; i < 10; i++) 
-        Xs.push(Math.round(Math.random() * WIDTH * 100 / 100));
-    for (var j = 0; j < 10; j++) 
-        Ys.push(Math.round(Math.random() * HEIGHT * 100 / 100));
+function createArray(cols) {
+    var arr = [];
+    for (let i = 0; i < cols; i++) 
+        arr[i] = [];
     
-    var side = 10 + Math.round(Math.random() * 1000 / 10);
-    var shortSide = 10 + Math.round(Math.random() * 1000 / 10); // increments of 10, from 10 to 100
-    for (var i = 0; i < OBSTACLECOUNT/2; i+=2) {
-        blocks.push(createSquare(Xs[i], Ys[i], side));
-        blocks.push(createRectangle(Xs[i + 1], Ys[i + 1], shortSide));
-    }
-    createLLeftTop();
-    createLLeftTop();
-    createLRightTop();
-    createLRightTop();
-    createLLeftBottom();
-    createLLeftBottom();
-    createLRightBottom();
-    createLRightBottom();
+    return arr;
 }
 
-function drawMap() {
+function drawGrid() {
     ctx.beginPath();
-    ctx.fillStyle = 'black';
-    ctx.rect(0,0,WIDTH, 10);
-    ctx.rect(0,0, 10, HEIGHT);
-    ctx.rect(0, HEIGHT - 10, WIDTH, 10);
-    ctx.rect(WIDTH - 10, 0, 10, HEIGHT);
-    for (var i = 0; i < blocks.length; i++) {
-        ctx.rect(blocks[i].x, blocks[i].y, blocks[i].width, blocks[i].height);
+    ctx.strokeStyle = '#835C3B';
+    for (let i = 0; i < cols; i++) {
+        for (let j = 0; j < rows; j++) {
+            ctx.rect(i * CELL,j * CELL, CELL, CELL);
+        }
     }
+    ctx.stroke();
+    ctx.closePath();
+}
+
+function plotBlock(col, row) {
+    ctx.beginPath();
+    ctx.fillStyle = 'green';
+    ctx.rect(col * CELL, row * CELL, CELL, CELL);
     ctx.fill();
     ctx.closePath();
 }
 
+// fill grid with random 0s and 1s
+function fillGrid() {
+    for (var i = 0; i < cols; i++)
+        for (var j = 0; j < rows; j++) {
+            let random = Math.floor(Math.random() * 25); // 1 out of 25 chance
+            if (random === 1) {
+                grid[i][j] = 1;
+                blocks.push(new Block(i * CELL, j * CELL, CELL, CELL));
+            } else {
+                grid[i][j] = 0;
+            };
+        }
+}
+
+// scan the array
+// if a 1 is found, draw a square there
+function drawBlocks() {
+    for (let i = 0; i < cols; i++)
+        for (let j = 0; j < rows; j++) {
+            if (grid[i][j] === 1)
+                plotBlock(i,j);
+        }
+}
+
+// spawn a new block cleanly
+function plotTankCleanly(col, row) {
+    if (grid[col][row] === 0 && grid[col+1][row] === 0 &&
+        grid[col][row+1] === 0 && grid[col+1][row+1] === 0) {
+        createEnemy(col * CELL, row * CELL);
+    } else {
+        console.log(`X: ${col}, Y: ${row} square occupied`);
+        if (row < 10)
+            plotTankCleanly(col, row + 1);
+        else
+            plotTankCleanly(col, row - 1);
+    } 
+}
+
+var isAvailable = () => {
+    let row = getRandom(0, 18);
+    console.log(row);
+    if (grid[1][row] === 0)
+        return row;
+    else
+        isAvailable();
+}
+
+////////////////////////////////////////
+
 var startGame = () => {
+    blocks = [];
+    fillGrid();
     NUMENEMIES = 3;
-    createMap();
-    player.x = 50;
-    player.y = HEIGHT/2;
+    player.x = CELL;
+    player.y = isAvailable() * CELL;
     player.hp = 10;
+    player.armor = 1;
+    player.turbo = 0;
+    player.ammo = 10;
     frameCount = 0;
     shots = [];
     bullets = [];
     enemies = [];
     parts = [];
     powerups = [];
-
-    // spawn enemy cleanly
-    let spawn = {};
-    spawn.x = getRandom(WIDTH - 100, WIDTH - 20, 10);
-    spawn.y = getRandom(20, HEIGHT - 20, 60);
-    spawn.width = 30;
-    spawn.height = 30;
-
-    var isColliding = true;
-    for (block of blocks) 
-        isColliding = checkCollision(spawn, block);
-
-    if (!isColliding)
-        createEnemy(spawn.x, spawn.y);
+    plotTankCleanly(27, isAvailable());
+    // plotRandomTankCleanly(Math.floor(Math.random() * rows), 28);
+    // plotRandomTankCleanly(Math.floor(Math.random() * rows), 28);
 };
 
 startGame();
@@ -1177,6 +1188,7 @@ function showScore() {
     ctx.fillText("Score: " + Math.floor(frameCount/100), 100, 10);
     ctx.fillText("Ammo: " + player.ammo, 200, 10);
     ctx.fillText("Armor: " + player.armor, 300, 10);
+    ctx.fillText("Turbo: " + player.turbo, 400, 10);
     ctx.closePath();
 }
 
@@ -1187,7 +1199,6 @@ function getRandom(min, max, incr) {
 }
 
 function fb() {
-    // fb1.textContent = 'player.aimAngle: ' + Math.round(player.aimAngle);
+    fb1.textContent = 'player.aimAngle: ' + Math.round(player.aimAngle);
     fb2.textContent = 'player.x: ' + Math.round(player.x) + ' player.y: ' + Math.round(player.y);
-    fb3.textContent = 'enemy.x: ' + Math.round(enemy.x)  + ' enemy.y: ' + Math.round(enemy.y);
 }
