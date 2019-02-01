@@ -5,10 +5,16 @@ const ctx = canvas.getContext('2d');
 // GLOBALS
 const WIDTH = 900;
 const HEIGHT = 600;
-const OBSTACLECOUNT = 2;
-const SHOTSPD = 9;
+const TOPTURN = .035;
+const TURN = 0.017453;
+const SHOTSPD = 8;
+const TREADSPD = 5;
 var NUMENEMIES = 2;
 
+var left = false; 
+var right = false;
+var forward = false;
+var reverse = false;
 let paused = false;
 let mg = false;
 let mainGun = false;
@@ -21,7 +27,7 @@ var diffY = 0;
 
 const Img = {};
 Img.player =  new Image();
-Img.player.src = 'images/base_tiles8.png';
+Img.player.src = 'images/base_tiles64.png';
 Img.flash = new Image();
 Img.flash.src = 'images/flash.png';
 Img.shot = new Image();
@@ -29,7 +35,7 @@ Img.shot.src = 'images/shot.png';
 Img.tread = new Image();
 Img.tread.src = 'images/treads.png';
 Img.enemy = new Image();
-Img.enemy.src = 'images/enemy_tiles.png';
+Img.enemy.src = 'images/enemy_tiles32.png';
 Img.turret = new Image();
 Img.turret.src = 'images/turret_tiles.png';
 Img.powerup = {};
@@ -56,6 +62,8 @@ document.onmousemove = (e) => {
     mouseX = mouseX - player.x - player.width/2;
     mouseY = mouseY - player.y - player.height/2;
 
+
+    // Math.atan2(mouseY, mouseX) + Math.PI; // as a radian
     player.aimAngle = Math.atan2(mouseY, mouseX) / Math.PI * 180;
 }
 
@@ -70,35 +78,35 @@ document.addEventListener('click', (e) => {
 // KEYBOARD INPUT ////////////////////////////////////////////////
 document.addEventListener('keydown', (e) => {
     switch (e.keyCode) {
-        case 37: player.pressLeft = true;
+        case 37: left = true;
         break;
-        case 39: player.pressRight = true;
+        case 39: right = true;
         break;
-        case 38: player.pressUp = true;
+        case 38: forward = true;
         break;
-        case 40: player.pressDown = true;
+        case 40: reverse = true;
         break;
-        case 32: player.speedBonus++;
-                 setTimeout(() => {
-                     player.speedBonus = 1;
-                 }, 1500);;
-        break;
-        case 17: mg = true;
-        break;
+        case 17: if (player.turbo > 0) {
+            player.turbo -= 1;
+            TOPSPEED = 1.75;
+             setTimeout(() => {
+                 TOPSPEED = 1;
+             }, 1500);;
+        }
+        else
+            break;
     }
 });
 
 document.addEventListener('keyup', (e) => {
     switch (e.keyCode) {
-        case 37: player.pressLeft = false;
+        case 37: left = false;
         break;
-        case 39: player.pressRight = false;
+        case 39: right = false;
         break;
-        case 38: player.pressUp = false;
+        case 38: forward = false;
         break;
-        case 40: player.pressDown = false;
-        break;
-        case 17: mg = false;
+        case 40: reverse = false;
         break;
     }
 });
@@ -109,8 +117,8 @@ const POWERLIMIT = 4;
 
 function Powerup(type, x, y, numFrames, img) {
     this.type = type;
-    this.width = 30;
-    this.height = 30;
+    this.width = 20;
+    this.height = 20;
     this.x = x;
     this.y = y;
     this.frameIndex = 0;
@@ -134,7 +142,7 @@ function Powerup(type, x, y, numFrames, img) {
     }
 
     this.draw = () => {
-        ctx.save();        
+        // ctx.save();        
         let frameWidth = this.img.width / this.numFrames;
         ctx.drawImage(this.img,
             this.frameIndex * frameWidth, 0,
@@ -195,8 +203,11 @@ function Enemy(x, y, dx, dy, attackCounter) {
     this.y = y;
     this.dx = dx;
     this.dy = dy;
-    this.width = 44;
-    this.height = 44;
+    this.angle = 0;
+    this.rad = 0;
+    this.frame = 0;
+    this.width = 30;
+    this.height = 30;
     this.age = 0;
     this.attackCounter = attackCounter;
     this.img = Img.enemy;
@@ -205,6 +216,9 @@ function Enemy(x, y, dx, dy, attackCounter) {
     this.fp = 1;
     this.hp = 10;
     this.speed = 0.5;
+    this.stuck = 0;
+    this.prevX = 0;
+    this.prevY = 0;
 
     this.fire = function() {
         x = this.x + this.width/2;
@@ -219,39 +233,71 @@ function Enemy(x, y, dx, dy, attackCounter) {
     }
 
     this.update = () => {
+        // get angle to player tank
         let mouseX = (player.x + player.width/2) - canvas.getBoundingClientRect().left;
         let mouseY  = (player.y + player.height/2) - canvas.getBoundingClientRect().top;
     
         mouseX = mouseX - this.x - this.width/2;
         mouseY = mouseY - this.y - this.height/2;
 
-        this.aimAngle = Math.atan2(mouseY, mouseX) / Math.PI * 180;
-  
-        diffX = Math.round((player.x + player.width/2) - (this.x + this.width/2));
-        diffY = Math.round((player.y + player.height/2) - (this.y + this.height/2));
-
-        // fbDiffX.textContent = diffX;
-        // fbDiffY.textContent = diffY;
-
-        if (diffX > 0)
-            this.dx = this.speed;
-        else
-            this.dx = -this.speed;
-
-        if (diffY > 0)
-            this.dy = this.speed;
-        else
-            this.dy = -this.speed;
-
+        this.aimAngle = Math.round(Math.atan2(mouseY, mouseX) / Math.PI * 180);
+        
+        // angle of tank
+        this.angle = this.aimAngle + 180; // 360 degree
+        this.rad = this.angle * (Math.PI / 180);
+        this.dx = this.speed * Math.cos(this.rad) * -1;
+        this.dy = this.speed * Math.sin(this.rad) * -1;
+        
         this.x += this.dx;
         this.y += this.dy;
+
+        if (this.stuck == 1) {
+            this.addStuck();
+            
+        }
         
-        this.edge();
-        // this.space();
-        this.draw(diffX, diffY);
+        this.wrap();
+        this.draw();
+    }
+
+    this.addStuck = function() {
+            // add a little box above the tank saying STUCK
+            ctx.beginPath();
+            ctx.fillStyle = 'black';
+            ctx.fillText('STUCK', this.x - this.width/4, this.y - this.height/4);
+            ctx.closePath();
+    }
+
+    this.draw = function() {
+        let a = Math.round(this.angle/11.25);
+        let row = 0
+        let col = a % 8;
+
+        if (a >= 0 && a <= 7)
+            row = 2; 
+        if (a >= 8 && a <= 15)
+            row = 3; 
+        if (a >= 16 && a <= 23) 
+            row = 0;
+        if (a >= 24 && a <= 31)
+            row = 1;
+        if (a == 32) {
+            row = 2; col = 0;
+        }
+
+        let frameWidth = this.img.width/8;
+        let frameHeight = this.img.height/4;
+
+        // ctx.save();
+        ctx.drawImage(this.img,
+            frameWidth * col, frameHeight * row,
+            64,64,
+            this.x,this.y,
+            this.width, this.height
+            );
     }
     
-    this.edge = function() {
+    this.wrap = function() {
         if (this.x < 0)
         this.x = 0;
         if (this.x > WIDTH - this.width)
@@ -260,52 +306,6 @@ function Enemy(x, y, dx, dy, attackCounter) {
         this.y = 0;
         if (this.y > HEIGHT - this.height)
         this.y = HEIGHT - this.height;
-    }
-            
-    this.draw = function(diffX, diffY) {
-        ctx.save();
-
-        if (diffX > 2 && diffY < 2) {
-            dirCol = 0;
-            dirRow = 0;
-        }
-        if (diffX < 2 && diffY < 2) {
-            dirCol = 0;
-            dirRow = 2;
-        }
-        if (diffY > 2 && diffX < 2) {
-            dirCol = 0;
-            dirRow = 1;
-        }
-        if (diffY < -2 && diffX < 2) {
-            dirCol = 0;
-            dirRow = 3;
-        }
-        if (diffX > 2.1 && diffY > 2.1) {
-            dirCol = 1;
-            dirRow = 0;
-        }
-        if (diffX > 2.1 && diffY < -2.1) {
-            dirCol = 1;
-            dirRow = 3;
-        }
-        if (diffX < 2.1 && diffY > 2.1) {
-            dirCol = 1;
-            dirRow = 1;
-        }
-        if (diffX < 2.1 && diffY < -2.1) {
-            dirCol = 1;
-            dirRow = 2;
-        }
-
-        let frameWidth = this.img.width/2;
-        let frameHeight = this.img.height/4;
-
-        ctx.drawImage(this.img,
-            frameWidth * dirCol, frameHeight * dirRow,
-            frameWidth, frameHeight,
-            this.x, this.y, 
-            this.width, this.height);
     }
 }
 
@@ -340,57 +340,12 @@ function Flash(x,y, angle) {
         let frameWidth = this.img.width/8;
         let frameHeight = this.img.height/8;
 
-        let xMod = 0;
-        let yMod = 0;
-        let halfX = player.width/4;
-        let halfY = player.height/4;
 
-        if (player.pressRight) {
-            xMod = halfX * 2.5;
-            yMod = -halfY;
-            row = 0;
-        }
-        if (player.pressLeft) {
-            xMod = -halfX * 4.75;
-            yMod = -halfY;
-            row = 4;
-        }
-        if (player.pressUp) {
-            xMod = -halfX;
-            yMod = -halfY * 4.75;
-            row = 2;
-        }
-        if (player.pressDown) {
-            xMod = -halfX;
-            yMod = halfY * 2.5;
-            row = 6;
-        }
-        if (player.pressDown && player.pressLeft) {
-            xMod = -halfX * 4;
-            row = 5;
-            
-        }
-        if (player.pressDown && player.pressRight) {
-            xMod = halfX * 1.5;
-            row = 7;
-            
-        }
-        if (player.pressUp && player.pressRight) {
-            xMod = halfX * 1.5;
-            row = 1;
-            
-        }
-        if (player.pressUp && player.pressLeft) {
-            xMod = -halfX * 4;
-            row = 3;
-            
-        }
-
-        ctx.save();
+        // ctx.save();
         ctx.drawImage(this.img, 
             frameMod * frameWidth, row * frameHeight,
             frameWidth, frameHeight,
-            this.x + xMod, this.y + yMod,
+            this.x, this.y,
             this.width, this.height
             );
 
@@ -402,104 +357,11 @@ function Flash(x,y, angle) {
 };
 
 var createFlash = () => {
-    flash.x = player.x + player.width/4;
-    flash.y = player.y + player.height/4;
+    flash.x = player.x + (20 * Math.cos(player.radian));
+    flash.y = player.y + (20 * Math.sin(player.radian));
     flash.angle = player.aimAngle/180 * Math.PI;
 };
 
-// BULLETS ////////////////////////
-var bullets = [];
-var BULLETS_LEFT = 8;
-const BULLET_SPD = 8;
-var mgEmpty = false;
-
-function Bullet(x, y, dx, dy) {
-    this.x = x;
-    this.y = y;
-    this.prevX = 0;
-    this.prevY = 0;
-    this.dx = dx;
-    this.dy = dy;
-    this.width = 3;
-    this.height = 3;
-    this.age = 0;
-    this.type = 'bullet';
-
-    this.update = function() {
-        if (this.age > 30)
-            bullets.shift(this);
-        else {
-            this.age ++;
-            this.prevX = this.x;
-            this.prevY = this.y;
-            this.x += this.dx;
-            this.y += this.dy;
-            this.edge();
-            this.draw();
-        }    
-    }
-
-    this.draw = function() {
-        ctx.beginPath();
-        ctx.rect(this.prevX, this.prevY, 1, 1);
-        ctx.rect(this.x, this.y - 1, this.width, this.height);
-        ctx.fillStyle = 'white';
-        ctx.fill();
-        ctx.closePath();
-    }
-
-    this.edge = function() {
-        if (this.x > WIDTH || this.x < 0 || this.y > HEIGHT || this.y < 0) {
-            bullets.shift(this);
-        }
-    }
-}
-
-var createBullet = () => {
-    BULLETS_LEFT -= 1;
-    let x = y = dx = dy = 0;
-    if (bullets.length < BULLETS_LEFT && !mgEmpty) {
-        x = player.x + player.width/2;
-        y = player.y + player.height/2;
-        if (lastRow == 2 && lastCol == 0) { // facing left
-            dx = -BULLET_SPD;
-        }
-        if (lastRow == 0 && lastCol == 0) { // facing right
-            dx = BULLET_SPD;
-        }
-        if (lastRow == 3 && lastCol == 0) { // facing up
-            dy = -BULLET_SPD;
-        }
-        if (lastRow == 1 && lastCol == 0) { // facing down
-            dy = BULLET_SPD;
-        }
-        if (lastRow == 2 && lastCol == 1) { // facing left-up
-            dx = -BULLET_SPD + 1;
-            dy = -BULLET_SPD + 1;
-        }
-        if (lastRow == 1 && lastCol == 1) { // facing left-down
-            dx = -BULLET_SPD + 1;
-            dy = BULLET_SPD + 1;
-        }
-        if (lastRow == 3 && lastCol == 1) { // facing right-up
-            dx = BULLET_SPD - 1;
-            dy = -BULLET_SPD + 1;
-        }
-        if (lastRow == 0 && lastCol == 1) { // facing right-down
-            dx = BULLET_SPD - 1;
-            dy = BULLET_SPD - 1;
-        }
-        age = 0;
-        bullets.push(new Bullet(x, y, dx, dy, age));
-    } else {
-        mgEmpty = true;
-        mg = false;
-        setTimeout(() => {
-            mgEmpty = false;
-            BULLETS_LEFT = 8;
-        }, 300);
-    }
-}
 
 // SHOTS ////////////////////////////
 var shots = [];
@@ -509,8 +371,8 @@ function Shot(x, y, dx, dy) {
     this.y = y;
     this.dx = dx;
     this.dy = dy;
-    this.width = 8;
-    this.height = 8;
+    this.width = 4;
+    this.height = 4;
     this.age = 0;
     this.type = 'shot';
     this.img = Img.shot;
@@ -524,7 +386,7 @@ function Shot(x, y, dx, dy) {
     };
 
     this.draw = function() {
-        ctx.save();
+        // ctx.save();
         ctx.drawImage(this.img,
             this.x, this.y,
             this.width, this.height);
@@ -549,18 +411,22 @@ var createShot = (actor) => {
 }
 
 // PLAYER /////////////////////////////////////////////////////////////
-var lastRow = 0;
-var lastCol = 0;
+var TOPSPEED = 1.0;
 
 var player = {
     type: 'player',
     x: 50,
     y: HEIGHT/2,
-    width: 44,
-    height: 44,
+    dx: 0, 
+    dy: 0,
+    angle: 0,
+    radian: 0,
+    turnSpeed: 0,
+    width: 30,
+    height: 30,
     speed: 1,
     speedBonus: 1,
-    turbo: 0,
+    turbo: 1,
     ammo: 10,
     hp: 10,
     armor: 1,
@@ -570,62 +436,18 @@ var player = {
     pressUp: false,
     pressDown: false,
     img: Img.player,
+    frame: 0,
     // methods
     draw: function() {
-        ctx.save();
-        if (this.pressLeft) {
-            dirRow = lastRow = 2;
-            dirCol = lastCol = 0;
-        }
-        if (this.pressRight) {
-            dirRow = lastRow = 0;
-            dirCol = lastCol = 0;
-        }
-        if (this.pressUp) {
-            dirRow = lastRow = 3;
-            dirCol = lastCol = 0;
-        }
-        if (this.pressDown) {
-            dirRow = lastRow = 1;
-            dirCol = lastCol = 0;
-        }
-        if (this.pressDown && this.pressLeft) {
-            dirRow = lastRow = 1;
-            dirCol = lastCol = 1;
-        }
-        if (this.pressDown && this.pressRight) {
-            dirRow = lastRow = 0;
-            dirCol = lastCol = 1;
-        }
-        if (this.pressUp && this.pressRight) {
-            dirRow = lastRow = 3;
-            dirCol = lastCol = 1;
-        }
-        if (this.pressUp && this.pressLeft) {
-            dirRow = lastRow = 2;
-            dirCol = lastCol = 1;
-        }
-        else {
-            dirRow = lastRow;
-            dirCol = lastCol;
-        }
-
-        let frameWidth = this.img.width/4;
-        let frameHeight = this.img.height/4;
-
-        if (mg) {
-            var fireOrNot = Math.floor(Math.random() * 2);
-            if (fireOrNot)
-                dirCol = dirCol + 2;
-        }
-        // if (!mg)
-        //     dirCol = lastCol;
-
+        let row = Math.floor(player.frame / 16);
+        let col = player.frame % 16;
+        // ctx.save();
         ctx.drawImage(this.img,
-            frameWidth * dirCol, frameHeight * dirRow,
-            frameWidth, frameHeight,
+            col * 64, row * 64,
+            64, 64,
             this.x, this.y, 
             this.width, this.height);
+        // ctx.restore();
         // box around the tank
         // ctx.beginPath();
         // ctx.strokeStyle = 'red';
@@ -634,32 +456,72 @@ var player = {
         // ctx.closePath();
     },
     update: function() {
-        if (this.pressLeft) 
-            this.x -= this.speed;
-        if (this.pressRight) 
-            this.x += this.speed;            
-        if (this.pressUp) 
-            this.y -= this.speed;
-        if (this.pressDown) 
-            this.y += this.speed;
+        var c = Math.cos(this.radian) * TOPSPEED;
+        var s = Math.sin(this.radian) * TOPSPEED;
 
-        // travelling diagonally, a little slower
-        if ((this.pressUp && this.pressLeft) || (this.pressUp && this.pressRight) || 
-            (this.pressDown && this.pressLeft) || (this.pressDown && this.pressRight))
-            this.speed = .9 * this.speedBonus;
-        else
-            this.speed = 1 * this.speedBonus;
+    if (left) {
+        if (this.turnSpeed > -TOPTURN)
+            this.turnSpeed -= TURN;
+        if (this.turnSpeed > 0)
+            this.turnSpeed = 0;
+    }
+    if (right) {
+        if (this.turnSpeed < TOPTURN)
+            this.turnSpeed += TURN;
+        if (this.turnSpeed < 0)
+            this.turnSpeed = 0;
+    }
 
-        if (this.hp <= 0) {
-            console.log('game over');
-            delete player;
-            setTimeout(() => {
-                startGame();
-            }, 1000);
+    if (!left && !right) {
+        this.turnSpeed = 0;
+    }
+
+    if (this.radian < 0)
+        this.radian = 2 * Math.PI;
+    if (this.radian > 2 * Math.PI)
+        this.radian = 0;
+
+    this.radian = this.radian + this.turnSpeed;    
+ 
+    player.angle = Math.round(player.radian * (180 /  Math.PI));
+
+    player.frame = Math.round(player.angle / 5.625);
+    if (player.frame == 64)
+        player.frame = 0;
+    
+    if (forward) {
+        let lastDX = player.dx;
+        let lastDY = player.dy;
+        this.dx = c;
+        this.dy = s;
+        // acceleration
+        let spawnDust = Math.round(Math.random() * 3);
+
+        if (spawnDust < 3) {
+            createDustLeft();
+            createDustRight();
         }
+    }
 
-        this.edge();
-        this.draw();
+    if (reverse){
+        this.dx = -c;
+        this.dy = -s;
+    }
+
+    if (!forward && !reverse) {
+        this.dx = 0;
+        this.dy = 0;
+    }
+    
+    // x,y
+    this.x += this.dx;
+    this.y += this.dy;
+
+    if ((forward || reverse || left || right) && (frameCount % TREADSPD == 0))
+        createTread(player);
+
+    this.edge();
+    this.draw();
         
     },
     fire: function() {
@@ -679,68 +541,81 @@ var player = {
         this.y = 0;
     if (this.y > HEIGHT - this.height)
         this.y = HEIGHT - this.height;
+    },
+    drawLaser: function(enemy) {
+        ctx.beginPath();
+        ctx.strokeStyle = 'red';
+        ctx.moveTo(this.x + this.width/2, this.y + this.height/2);
+        ctx.lineTo(enemy.x + enemy.width/2, enemy.y + enemy.width/2);
+        ctx.stroke();
+        // ctx.closePath();
     }
 }
 
 // EXPLOSION /////////////////////////
 let parts = [];
-const PARTLIMIT = 100;
+const LIMIT = 40;
 
-function Part(x,y,speed,angle, life){
+function Part(x, y, life, radian){
     this.x = x;
     this.y = y;
-    this.speed = speed;
-    this.angle = angle;
+    this.dx = 0;
+    this.dy = 0;
+    this.speed = 0;
+    this.radian = radian;
     this.life = life;
-    this.width = Math.random() * 4;
-    this.height = Math.random() * 4;
+    this.opacity = 1.0;
+    this.size = Math.floor(Math.random() * 3);
+
+    this.update = function() {
+        this.opacity -= 0.03;
+        this.life--;
+        // speed check based on size
+        if (this.size > 2) {
+            this.speed = 2;
+        } else {
+            this.speed = 4;
+        }
+        //edge check
+        if (this.x > WIDTH || this.x < 0 || this.y > HEIGHT || this.y < 0)
+            delete this;
+        // age check
+        if (this.life <= 0)
+            delete this;
+        else {
+            // move out in random directions at random speeds
+            this.dx = Math.cos(this.radian) * this.speed;
+            this.dy = Math.sin(this.radian) * this.speed;
+            this.x += this.dx;
+            this.y += this.dy;
+        }
+    };
+
+    this.draw = function() {
+        ctx.fillStyle = 'yellow';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.globalAlpha = this.opacity;
+        ctx.fillRect(this.x, this.y, this.size, this.size);
+        ctx.globalAlpha = 1.0;
+        ctx.fill();
+        ctx.closePath();
+    };
 } 
 
-function lgExplode(x, y) {
-    for (var i = 0; i < PARTLIMIT; i++){
-        // vary angle
-        let ranAngle = Math.round(Math.random() * 360);
-        // vary speed
-        let ranSpeed = Math.random() * 4;
-        parts.push(new Part(x, y, ranSpeed, ranAngle, Math.random() * 30 ));
-    }
+function createParticle(x,y) {
+    // vary angle with direction
+    // let radian = Math.random() * 2 + 3.8; // up
+    let radian = Math.random() + turret.radian; 
+    // var life of particles
+    let life = Math.random() * 20;
+    parts.push(new Part(x, y, life, radian));
 }
 
 function smExplode(x, y) {
-    for (var i = 0; i < PARTLIMIT / 2; i++){
-        // vary angle
-        let ranAngle = Math.round(Math.random() * 360);
-        // vary speed
-        let ranSpeed = Math.random() * 3;
-        parts.push(new Part(x, y, ranSpeed, ranAngle, Math.random() * 10 ));
-    }
-}
-
-function moveExplosion(){
-    for (var i = 0; i < parts.length; i++){
-        // move out in random directions at random speeds
-        parts[i].x += Math.cos(parts[i].angle) * parts[i].speed;
-        parts[i].y += Math.sin(parts[i].angle) * parts[i].speed;
-        //edge
-        if (parts[i].x > WIDTH || parts[i].x < 0 || parts[i].y > HEIGHT || parts[i].y < 0)
-            parts.shift(parts[i]);
-    }
-}
-
-function drawExplosion(){
-    for (var i = 0; i < parts.length; i++){
-        if (parts[i].life < 0)
-            ;
-        else {
-            ctx.strokeStyle = 'yellow';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.fillRect(parts[i].x, parts[i].y, parts[i].width, parts[i].height);
-            ctx.fill();
-            ctx.closePath();
-            parts[i].life -= 1;
-        }
-    }
+    parts = [];
+    for (var i = 0; i < LIMIT; i++)
+        createParticle(x,y);
 }
 
 // TURRET ////////////////////////////
@@ -748,13 +623,15 @@ var turret = {
     x: player.x + player.width/2,
     y: player.y + player.height/2,
     angle: 0,
+    radian: 0,
     img: Img.turret,
 
     update : function() {
         this.x = player.x;
         this.y = player.y;
         this.draw();
-        this.angle = Math.round((player.aimAngle/180 * Math.PI) * (180/Math.PI)) + 180;
+        this.angle = Math.round(player.aimAngle + 180); // 360
+        this.radian = (this.angle - 180) * (Math.PI / 180);
     },
 
     draw : function() {
@@ -777,81 +654,197 @@ var turret = {
         let frameWidth = this.img.width/8;
         let frameHeight = this.img.height/4;
 
-        ctx.save();
+        // ctx.save();
         ctx.drawImage(this.img,
             frameWidth * col, frameHeight * row,
             64,64,
             this.x,this.y,
-            44,44
+            30,30
             );
+        // ctx.restore();
     }
 }
 
-// TREADS /////////////////////////
-var treadRow = 0;
-var treadCol = 0;
-var treadHistory = [];
-const TREADLIMIT = 20;
-
-function Tread(x, y, direction) {
-    this.width = 16;
-    this.height = 16;
-    this.x = x - this.width/2;
-    this.y = y - this.height/2;
-    this.direction = direction;
+// EMITTERS ////////////////////////////
+function Emitter(points) {
+    this.x = 0;
+    this.y = 0;
+    this.points = points;
 
     this.draw = function() {
         ctx.beginPath();
-        ctx.rect(this.x, this.y, this.width, this.height);
-        ctx.fillStyle = 'brown';
+        ctx.fillStyle = 'red';
+        ctx.rect(this.x, this.y, 2,2);
         ctx.fill();
+        ctx.closePath();
+    };
+    this.update = function() {
+        let c = Math.cos(player.turnSpeed);
+        let s = Math.sin(player.turnSpeed);
+
+        let x = this.points[0];
+        let y = this.points[1];
+
+        this.points[0] = x*c - s*y;
+        this.points[1] = x*s + y*c;
+    
+        // x,y
+        this.x = (player.x + player.width/2) + this.points[0];
+        this.y = (player.y + player.height/2) + this.points[1];
+
+        // this.draw();
+    }
+};
+
+const emitLeft = new Emitter([-10, -7]);
+const emitRight = new Emitter([-10, 7]);
+
+// DUST ////////////////////////////////////////////////////////////
+var dusts = [];
+
+function Dust(x,y,radian) {
+    this.x = x;
+    this.y = y;
+    this.dx = 0;
+    this.dy = 0;
+    this.size = 2;
+    this.radian = radian;
+    this.opacity = 1.0;
+
+    this.update = function() {
+        this.dx = Math.cos(this.radian);
+        this.dy = Math.sin(this.radian);
+        this.x += this.dx;
+        this.y += this.dy;
+        this.opacity -= 0.05;
+        this.size -= 0.05;
         
+        if (this.opacity > 0)
+            this.draw();
+    };
+
+    this.draw = function() {
+        ctx.beginPath();
+        ctx.globalAlpha = this.opacity;
+        ctx.fillStyle = 'black';
+        ctx.rect(this.x, this.y, this.size, this.size);
+        ctx.fill();
+        ctx.closePath();
+        ctx.globalAlpha = 1.0;
+    }
+}
+
+function createDustLeft() {
+    let x = emitLeft.x;
+    let y = emitLeft.y;
+    let ran = Math.random() * 1.5; // between 0 and 1.5
+    let radian = ran + player.radian - Math.PI - .75;
+    dusts.push(new Dust(x,y,radian));
+}
+function createDustRight() {
+    let x = emitRight.x;
+    let y = emitRight.y;
+    let ran = Math.random() * 2;
+    let radian = ran + player.radian - Math.PI - 1;
+
+    dusts.push(new Dust(x,y,radian));
+}
+
+// TREADS ///////////////////////////////////////////////////////////
+var treadRow = 0;
+var treadCol = 0;
+var treadHistory = [];
+const TREADLIMIT = 100;
+
+function Tread(x, y, angle) {
+    this.width = 30;
+    this.height = 30;
+    this.x = x - this.width/2;
+    this.y = y - this.height/2;
+    this.angle = angle;
+    this.opacity = 1.0;
+    this.img = Img.tread;
+
+    this.update = function() {
+        
+        this.opacity -= 0.002; // this determines how long treads last
+        if (this.opacity > 0)
+            this.draw();
+        else {
+            treadHistory.shift(this);
+        }
+    }
+
+    this.draw = function() {
+        let a = Math.round(this.angle/11.25);
+        let row = 0;
+        let col = a % 8;
+
+        if (a >= 0 && a <= 7)
+            row = 2; 
+        if (a >= 8 && a <= 15)
+            row = 3; 
+        if (a >= 16 && a <= 23) 
+            row = 0;
+        if (a >= 24 && a <= 31)
+            row = 1;
+        if (a == 32) {
+            row = 2; col = 0;
+        }
+
+        let frameWidth = this.img.width/8;
+        let frameHeight = this.img.height/4;
+
+        // ctx.save();
+        ctx.globalAlpha = this.opacity;
+        ctx.drawImage(this.img,
+            frameWidth * col, frameHeight * row,
+            64, 64,
+            this.x, this.y,
+            this.width, this.height
+            );
+        ctx.globalAlpha = 1.0;
     };
 }
 
-var createTread = () => {
-    if (treadHistory.length < TREADLIMIT) {
-        x = player.x + player.width/2;
-        y = player.y + player.height/2;
-        direction = 0;
-        treadHistory.push(new Tread(x, y, direction));
-    }
-    if (treadHistory.length > TREADLIMIT)
-        treadHistory.pop();
+var createTread = (actor) => {
+        let x = actor.x + actor.width/2;
+        let y = actor.y + actor.height/2;
+        let angle = actor.angle;
+        treadHistory.push(new Tread(x, y, angle));
 }
 
-// var tread = {
-//     x: player.x,
-//     y: player.y,
-//     width: 22,
-//     height: 22,
-//     img: treadImg,
-//     // methods
-//     update: function() {
-//         this.x = player.x;
-//         this.y = player.y;
-//     },
-//     draw: function() {
-//         ctx.save();
-
-//         ctx.drawImage(this.img, 
-//             this.x, this.y, 
-//             this.width, this.height);
-//     }
-// }
-
-// LOOP ////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+// LOOP //////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
 var frameCount = 0;
 
 function loop() {
     frameCount++;
     ctx.clearRect(0,0,WIDTH,HEIGHT);
-    drawGrid();
+    // drawGrid();
     drawBlocks();    
     showScore();
 
-    moveExplosion();
-    drawExplosion();
+    for (part of parts) {
+        part.update();
+        part.draw();
+    }
+
+    // draw tank treads
+    for (tread of treadHistory)
+        tread.update();
+
+    // update emitter locations
+    emitLeft.update();
+    emitRight.update();
+
+    // draw dust when accelerates
+    for (let i = 0; i < dusts.length; i++) {
+        dusts[i].update();
+        if (dusts[i].opacity < 0)
+            dusts.splice(i,1);
+    }
 
     let lastX = player.x;
     let lastY = player.y;
@@ -864,11 +857,6 @@ function loop() {
         width: player.width - 10,
         height: player.height - 10,
     };
-
-    if (bullets.length > 0) 
-        for (let i = 0; i < bullets.length; i++) 
-            bullets[i].update();
-
 
     if (mainGun) {
         flash.update();
@@ -909,8 +897,28 @@ function loop() {
         }
     }
 
+    // draw laser from player to all tanks
+    // for (enemy of enemies)
+    //     player.drawLaser(enemy);
+
+    // space tanks from each other
+    if (enemies.length > 1) {
+        for (let i = 0; i < enemies.length-1; i++) {
+            let checkTanks = checkCollision(enemies[i], enemies[i+1]);
+            if (checkTanks) {
+                enemies[i].speed = 0;
+            } else {
+                enemies[i].speed = 0.5;
+            }
+        }
+    }
+
     // draw all enemies positions
     for (enemy of enemies) {
+        // lay down tracks
+        if (frameCount % (TREADSPD * 2) == 0)
+            createTread(enemy);
+
         // enemies fire randomly
         enemy.attackCounter++;
         if (enemy.attackCounter % 300 == 0) {
@@ -944,30 +952,13 @@ function loop() {
         for (block of blocks) {
             let isColliding = checkCollision(enemyCollisionSquare, block);
             if (isColliding) {
+                enemy.stuck = 1;
                 enemy.x = enemyLastX;
                 enemy.y = enemyLastY;
             }
         }
-        // enemy contact with bullets
-        for (let i = 0; i < bullets.length; i++) {
-                let isColliding = checkCollision(bullets[i], enemyCollisionSquare);
-                if (isColliding) {
-                    bullets.shift(i,1);
-                }
-        }
     }
 
-    // draw tank treads
-    for (tread of treadHistory) {
-        tread.draw();
-    }
-
-    if (mg && !mgEmpty) {
-        if (frameCount % 5 == 0) {
-            createBullet();
-        }
-    }
-    
     for (block of blocks) {
         let isColliding = checkCollision(playerCollisionSquare, block);
         if (isColliding) {
@@ -985,17 +976,20 @@ function loop() {
         // collision detection: shots vs player
         var isColliding = checkCollision(shot, playerCollisionSquare);
         if (isColliding && shot.age > 5) {
-            lgExplode(player.x + player.width/2, player.y + player.height/2);
+            // lgExplode(player.x + player.width/2, player.y + player.height/2);
+            smExplode(player.x + player.width/2, player.y + player.height/2);
             player.hp = player.hp - 1/player.armor;
             player.armor--;
+            shots.splice(shot);
         }
         
         // collision detection: shots vs enemies
         for (var i = 0; i < enemies.length; i++) {
             var isColliding = checkCollision(shot, enemies[i]);
-            if (isColliding && shot.age > 10) {
+            if (isColliding && shot.age > 5) {
                 // explosion here
-                lgExplode(enemies[i].x + enemies[i].width/2, enemies[i].y + enemies[i].height/2);
+                // lgExplode(enemies[i].x + enemies[i].width/2, enemies[i].y + enemies[i].height/2);
+                smExplode(enemies[i].x + enemies[i].width/2, enemies[i].y + enemies[i].height/2);
                 enemies.splice(i,1);
                 shots.splice(shot);
             } 
@@ -1003,10 +997,7 @@ function loop() {
     }
 
     for (block of blocks) {
-        // collision detection: bullets and shots VS walls
-        for (bullet of bullets) 
-            shotCollision(bullet, block);
-        
+        // collision detection: bullets and shots VS walls      
         for (var i = 0; i < shots.length; i++) 
             shotCollision(shots[i], block, i); 
     }
@@ -1014,7 +1005,7 @@ function loop() {
     if (enemies.length == 0) {
         NUMENEMIES ++;
         for (var i = 0; i < NUMENEMIES; i++)
-            plotTankCleanly(27, isAvailable());
+            plotTankCleanly(28, isAvailable());
     }
         
     fb();
@@ -1023,20 +1014,16 @@ function loop() {
 // END LOOP ///////////////////////////////////////////////////////////////////
 
 // COLLISION DETECTION //////////////////////////////////////////////////////////////
-var shotCollision = (projectile, block, idx) => {
+var shotCollision = (shot, block, idx) => {
     let blockLeft = block.x;
     let blockRight = block.x + block.width;
     let blockTop = block.y;
     let blockBottom = block.y + block.height;
 
-    if (projectile.x >= blockLeft && projectile.x <= blockRight &&
-        projectile.y >= blockTop && projectile.y <= blockBottom) {
-            if (projectile.type == 'bullet')
-                bullets.shift(projectile);
-            if (projectile.type == 'shot') {
-                smExplode(projectile.x, projectile.y);
-                shots.shift(idx, 1);
-            }
+    if (shot.x >= blockLeft && shot.x <= blockRight &&
+        shot.y >= blockTop && shot.y <= blockBottom) {
+            smExplode(shot.x, shot.y);
+            shots.splice(idx, 1);
         }
 }
 
@@ -1088,54 +1075,58 @@ function createArray(cols) {
     return arr;
 }
 
-function drawGrid() {
-    ctx.beginPath();
-    ctx.strokeStyle = '#835C3B';
-    for (let i = 0; i < cols; i++) {
-        for (let j = 0; j < rows; j++) {
-            ctx.rect(i * CELL,j * CELL, CELL, CELL);
-        }
-    }
-    ctx.stroke();
-    ctx.closePath();
-}
-
 function plotBlock(col, row) {
     ctx.beginPath();
-    ctx.fillStyle = 'green';
+    ctx.fillStyle = 'black';
     ctx.rect(col * CELL, row * CELL, CELL, CELL);
     ctx.fill();
     ctx.closePath();
 }
 
 // fill grid with random 0s and 1s
-function fillGrid() {
+function fillZeros() {
     for (var i = 0; i < cols; i++)
-        for (var j = 0; j < rows; j++) {
-            let random = Math.floor(Math.random() * 25); // 1 out of 25 chance
+        for (var j = 0; j < rows; j++) 
+            grid[i][j] = 0;
+}
+
+function addOnes() {
+    for (var i = 1; i < cols - 3; i++)
+        for (var j = 1; j < rows - 1; j++) {
+            let random = Math.floor(Math.random() * 50); // 1 out of 50 chance
             if (random === 1) {
                 grid[i][j] = 1;
                 blocks.push(new Block(i * CELL, j * CELL, CELL, CELL));
-            } else {
-                grid[i][j] = 0;
-            };
+            }
         }
 }
-
-// scan the array
-// if a 1 is found, draw a square there
-function drawBlocks() {
-    for (let i = 0; i < cols; i++)
+    
+function addExtras() {
+    for (var i = 0; i < cols; i++) {
+        for (var j = 0; j < rows-1; j++) {
+            if (grid[i][j] == 1) {
+                grid[i][j+1] = 1;
+                break;
+            }
+        }
+    }
+}
+    
+    // scan the array
+    // if a 1 is found, draw a square there
+    function drawBlocks() {
+        for (let i = 0; i < cols; i++)
         for (let j = 0; j < rows; j++) {
-            if (grid[i][j] === 1)
+            if (grid[i][j] === 1) {
+                blocks.push(new Block(i * CELL, j * CELL, CELL, CELL));
                 plotBlock(i,j);
+            }
         }
 }
 
 // spawn a new block cleanly
 function plotTankCleanly(col, row) {
-    if (grid[col][row] === 0 && grid[col+1][row] === 0 &&
-        grid[col][row+1] === 0 && grid[col+1][row+1] === 0) {
+    if (grid[col][row] === 0) {
         createEnemy(col * CELL, row * CELL);
     } else {
         console.log(`X: ${col}, Y: ${row} square occupied`);
@@ -1147,8 +1138,7 @@ function plotTankCleanly(col, row) {
 }
 
 var isAvailable = () => {
-    let row = getRandom(0, 18);
-    console.log(row);
+    let row = Math.round(Math.random() * 18);
     if (grid[1][row] === 0)
         return row;
     else
@@ -1159,23 +1149,25 @@ var isAvailable = () => {
 
 var startGame = () => {
     blocks = [];
-    fillGrid();
+    fillZeros();
+    addOnes();
+    addExtras();
     NUMENEMIES = 3;
     player.x = CELL;
     player.y = isAvailable() * CELL;
     player.hp = 10;
     player.armor = 1;
-    player.turbo = 0;
+    player.turbo = 1;
     player.ammo = 10;
     frameCount = 0;
     shots = [];
     bullets = [];
     enemies = [];
     parts = [];
+    treadHistory = [];
     powerups = [];
-    plotTankCleanly(27, isAvailable());
-    // plotRandomTankCleanly(Math.floor(Math.random() * rows), 28);
-    // plotRandomTankCleanly(Math.floor(Math.random() * rows), 28);
+    plotTankCleanly(28, isAvailable());
+    plotTankCleanly(28, isAvailable());
 };
 
 startGame();
@@ -1199,6 +1191,7 @@ function getRandom(min, max, incr) {
 }
 
 function fb() {
-    fb1.textContent = 'player.aimAngle: ' + Math.round(player.aimAngle);
-    fb2.textContent = 'player.x: ' + Math.round(player.x) + ' player.y: ' + Math.round(player.y);
+    fb1.textContent = 'player.rad: ' + player.radian.toFixed(3);
+    fb2.textContent = 'dusts.length: ' + dusts.length;
+    fb3.textContent = 'forward: ' + forward;
 }
